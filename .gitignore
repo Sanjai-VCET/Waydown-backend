@@ -1,0 +1,27 @@
+# Logs
+logs
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Dependency directories
+node_modules
+jspm_packages
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# dotenv environment variable files
+.env
+.env.test
+
+# Firebase private key
+firebase-admin.json

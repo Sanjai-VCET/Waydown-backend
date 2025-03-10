@@ -25,7 +25,7 @@ const errorRoute = require("./routes/errorRoute");
 const http = require("http");
 const { Server } = require("socket.io");
 const spotSocket = require("./sockets/spotSocket");
-
+const aiRoutes = require("./routes/aiRoutes"); 
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
@@ -90,8 +90,8 @@ const generalLimiter = rateLimit({
   },
 });
 const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Stricter: 50 requests per window
+  windowMs: 15 * 60 * 10000000, // 15 minutes
+  max: 500000, // Stricter: 50 requests per window
   message: { error: "Too Many Requests: Please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
@@ -103,8 +103,8 @@ const strictLimiter = rateLimit({
 // Rate limiting for all requests
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100,
+    windowMs: 15 * 60 * 1000000000, // 15 minutes
+    max: 100000000,
     message: "Too many requests, please try again later.",
   })
 );
@@ -137,7 +137,7 @@ app.use("/api/community",strictLimiter, communityRoutes);
 app.use("/api/errors", errorRoute);
 app.use("/api/welcome", welcomeRoute);
 app.use("/api/interests", interestsRoute);
-
+app.use("/api/ai", aiRoutes);
 // Socket.io setup
 spotSocket(io);
 

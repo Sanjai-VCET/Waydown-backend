@@ -82,6 +82,7 @@ router.get("/feed", authMiddleware, paginationValidation, validate, async (req, 
     next(error);
   }
 });
+
 // Admin analytics for spots
 router.get("/admin/analytics", authMiddleware, async (req, res, next) => {
   try {
@@ -90,10 +91,6 @@ router.get("/admin/analytics", authMiddleware, async (req, res, next) => {
     }
 
     const totalSpots = await Spot.countDocuments({ status: "approved" });
-    console.error("Error fetching total spots:", error); // Log the error for debugging
-
-    console.error("Error fetching total spots:", error); // Log the error for debugging
-
     const totalPosts = await Post.countDocuments(); // Assumes Post model exists
 
     const popularCategories = await Spot.aggregate([
@@ -140,27 +137,44 @@ router.get("/recommend", authMiddleware, paginationValidation, validate, async (
     const user = await User.findOne({ uid: req.user.uid });
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const totalSpots = await Spot.countDocuments({
-      tags: { $in: user.interests },
-      likedBy: { $nin: [req.user.uid] },
-      status: "approved",
-    });
-    const spots = await Spot.find({
-      tags: { $in: user.interests },
-      likedBy: { $nin: [req.user.uid] },
-      status: "approved",
-    })
-      .skip(skip)
-      .limit(limit)
-      .populate("submittedBy", "username profilePic")
-      .lean();
+    let totalSpots;
+    let spots;
+
+    // If user has interests, fetch personalized recommendations
+    if (user.interests && user.interests.length > 0) {
+      totalSpots = await Spot.countDocuments({
+        tags: { $in: user.interests },
+        likedBy: { $nin: [req.user.uid] },
+        status: "approved",
+      });
+      spots = await Spot.find({
+        tags: { $in: user.interests },
+        likedBy: { $nin: [req.user.uid] },
+        status: "approved",
+      })
+        .skip(skip)
+        .limit(limit)
+        .populate("submittedBy", "username profilePic")
+        .lean();
+    } else {
+      // Fallback: Fetch popular spots based on likes and recency
+      totalSpots = await Spot.countDocuments({ status: "approved" });
+      spots = await Spot.find({ status: "approved" })
+        .sort({ "likedBy.length": -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("submittedBy", "username profilePic")
+        .lean();
+    }
 
     const totalPages = Math.ceil(totalSpots / limit);
     res.status(200).json({ spots, totalPages });
   } catch (error) {
+    console.error("Recommendation error:", error);
     next(error);
   }
 });
+
 // Fetch trending spots
 router.get("/trending", paginationValidation, validate, async (req, res, next) => {
   try {
@@ -252,8 +266,8 @@ router.get(
       const totalSpots = await Spot.countDocuments({
         location: {
           $geoWithin: {
-            $centerSphere: [[lon, lat], radius / 6378137] // Convert meters to radians
-          }
+            $centerSphere: [[lon, lat], radius / 6378137], // Convert meters to radians
+          },
         },
         status: "approved",
       });
@@ -261,8 +275,8 @@ router.get(
       const spots = await Spot.find({
         location: {
           $geoWithin: {
-            $centerSphere: [[lon, lat], radius / 6378137]
-          }
+            $centerSphere: [[lon, lat], radius / 6378137],
+          },
         },
         status: "approved",
       })
@@ -278,6 +292,7 @@ router.get(
     }
   }
 );
+
 // Search spots by query
 router.get(
   "/search",
@@ -380,7 +395,6 @@ router.get("/tags/:tag", paginationValidation, [param("tag").notEmpty().withMess
   }
 });
 
-
 // Fetch a single spot by ID
 router.get("/:id", [param("id").isMongoId().withMessage("Invalid spot ID")], validate, async (req, res, next) => {
   try {
@@ -482,7 +496,6 @@ router.post(
 
       spot.comments.push(review);
       await spot.save();
-
       if (req.io && spot.submittedBy.toString() !== req.user.uid) {
         const spotCreator = await User.findOne({ uid: spot.submittedBy.toString() });
         if (spotCreator && spotCreator.notificationsEnabled) {
@@ -794,8 +807,6 @@ router.post(
     }
   }
 );
-
-
 
 // Report a spot
 router.post(

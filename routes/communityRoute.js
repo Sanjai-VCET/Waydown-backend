@@ -7,24 +7,27 @@ const { body, param, query, validationResult } = require("express-validator");
 const rateLimit = require("express-rate-limit");
 const upload = require("../middleware/upload");
 
+// Rate limiter for likes and comments
 const likeCommentLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // 50 requests per window
   message: "Too many likes/comments, slow down!",
 });
 
+// Pagination query parameter validation
 const paginationValidation = [
   query("page").optional().isInt({ min: 1 }).toInt().withMessage("Page must be a positive integer"),
   query("limit").optional().isInt({ min: 1, max: 100 }).toInt().withMessage("Limit must be between 1 and 100"),
 ];
 
+// Middleware to validate request data
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
   next();
 };
 
-// GET /api/community/posts
+// **GET /api/community/posts** - Fetch paginated approved posts
 router.get("/", paginationValidation, validate, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -45,7 +48,7 @@ router.get("/", paginationValidation, validate, async (req, res, next) => {
   }
 });
 
-// GET /api/community/:postId (Extra, keeping it)
+// **GET /api/community/:postId** - Fetch a single post by ID
 router.get(
   "/:postId",
   [param("postId").isMongoId().withMessage("Invalid post ID")],
@@ -63,7 +66,7 @@ router.get(
   }
 );
 
-// POST /api/community/posts
+// **POST /api/community/posts** - Create a new post
 router.post(
   "/",
   authMiddleware,
@@ -80,19 +83,32 @@ router.post(
       const user = await User.findOne({ uid: req.user.uid });
       if (!user) return res.status(404).json({ error: "User not found" });
 
-      const images = req.files ? req.files.map((file) => ({
-        url: file.path,
-        uploadedAt: new Date(),
-      })) : []; // Default to empty array if no files
+      const images = req.files
+        ? req.files.map((file) => ({
+            url: file.path,
+            uploadedAt: new Date(),
+          }))
+        : [];
+
+      let tags = req.body.tags;
+      if (typeof tags === "string") {
+        try {
+          tags = JSON.parse(tags);
+        } catch {
+          tags = [];
+        }
+      }
 
       const post = new Post({
         title: req.body.title,
         content: req.body.content,
         location: req.body.location,
-        tags: req.body.tags || [],
+        tags: tags || [],
         images,
         user: user._id,
-        status: "approved", // Auto-approve for now; add moderation if needed
+        likes: [],
+        comments: [],
+        status: "approved",
       });
 
       await post.save();
@@ -100,13 +116,14 @@ router.post(
         .populate("user", "username profilePic")
         .lean();
 
-      res.status(201).json({ post: populatedPost, message: "Post created successfully" });
+      res.status(201).json({ post: populatedPost });
     } catch (error) {
       next(error);
     }
   }
 );
-// POST /api/community/:postId/like
+
+// **POST /api/community/:postId/like** - Like a post
 router.post(
   "/:postId/like",
   authMiddleware,
@@ -129,14 +146,14 @@ router.post(
         .populate("user", "username profilePic")
         .lean();
 
-      res.status(200).json({ post: updatedPost, message: "Post liked successfully" });
+      res.status(200).json({ post: updatedPost });
     } catch (error) {
       next(error);
     }
   }
 );
 
-// DELETE /api/community/:postId/like (Extra, keeping it)
+// **DELETE /api/community/:postId/like** - Unlike a post
 router.delete(
   "/:postId/like",
   authMiddleware,
@@ -155,14 +172,18 @@ router.delete(
       post.likes = post.likes.filter((uid) => uid !== req.user.uid);
       await post.save();
 
-      res.status(200).json({ message: "Post unliked successfully" });
+      const updatedPost = await Post.findById(post._id)
+        .populate("user", "username profilePic")
+        .lean();
+
+      res.status(200).json({ post: updatedPost });
     } catch (error) {
       next(error);
     }
   }
 );
 
-// POST /api/community/:postId/comments
+// **POST /api/community/:postId/comments** - Add a comment to a post
 router.post(
   "/:postId/comments",
   authMiddleware,
@@ -194,14 +215,14 @@ router.post(
         .populate("user", "username profilePic")
         .lean();
 
-      res.status(200).json({ post: updatedPost, message: "Comment added successfully" });
+      res.status(200).json({ post: updatedPost });
     } catch (error) {
       next(error);
     }
   }
 );
 
-// GET /api/community/:postId/comments (Extra, keeping it)
+// **GET /api/community/:postId/comments** - Fetch comments for a post
 router.get(
   "/:postId/comments",
   [param("postId").isMongoId().withMessage("Invalid post ID")],
@@ -218,5 +239,36 @@ router.get(
     }
   }
 );
+
+// **GET /api/community/tags/trending** - Fetch trending tags
+router.get("/tags/trending", authMiddleware, paginationValidation, validate, async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+
+    const tags = await Post.aggregate([
+      { $match: { status: "approved" } },
+      { $unwind: "$tags" },
+      {
+        $group: {
+          _id: "$tags",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          name: "$_id",
+          count: 1,
+          _id: 0,
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ]);
+
+    res.status(200).json(tags);
+  } catch (error) {
+    next(error);
+  }
+});
 
 module.exports = router;

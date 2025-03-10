@@ -60,7 +60,7 @@ const UserSchema = new mongoose.Schema(
     },
     interests: {
       type: [String],
-      default: [],
+      default: ["Nature", "Waterfalls", "Mountains", "Beaches", "Adventure", "Foodie"],
       enum: [
         "Adventure",
         "Temples",

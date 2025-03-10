@@ -140,15 +140,32 @@ const addComment = async (req, res, next) => {
     if (spot.status !== "approved")
       return res.status(403).json({ error: "Spot is not approved" });
 
-    const { text } = req.body;
-    const firebaseUid = req.user.uid;
+    // Get user details from Firebase UID
+    const user = await User.findOne({ uid: req.user.uid }).select("username _id");
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-    spot.comments.push({ userId: firebaseUid, text });
+    // Capture content and rating from req.body
+    const { content, rating } = req.body;
+    if (!content || !rating) {
+      return res.status(400).json({ error: "Content and rating are required" });
+    }
+
+    // Create valid comment object
+    const newComment = {
+      user: user._id,        // MongoDB User ID (not Firebase UID)
+      username: user.username,
+      content,
+      rating,
+      createdAt: new Date(), // Explicitly set timestamp
+    };
+
+    // Add to comments array
+    spot.comments.push(newComment);
     await spot.save();
 
     req.io.to(spot._id.toString()).emit("spotUpdated", spot);
 
-    res.status(200).json({ spot, message: "Comment added" });
+    res.status(200).json({ spot, message: "Review added" });
   } catch (error) {
     next(error);
   }

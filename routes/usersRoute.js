@@ -274,7 +274,44 @@ router.get(
     }
   }
 );
+// ✅ Get popular users (Protected)
+router.get("/popular", authMiddleware, paginationValidation, validate, async (req, res, next) => {
+  try {
+    const limit = parseInt(req.query.limit) || 4;
+    const page = parseInt(req.query.page) || 1;
+    const skip = (page - 1) * limit;
 
+    const users = await User.aggregate([
+      {
+        $lookup: {
+          from: "spots",
+          localField: "_id",
+          foreignField: "submittedBy",
+          as: "userPosts",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          username: 1,
+          profilePic: 1,
+          posts: { $size: "$userPosts" },
+          followers: { $size: "$followers" },
+        },
+      },
+      { $sort: { followers: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalUsers = await User.countDocuments();
+    const totalPages = Math.ceil(totalUsers / limit);
+
+    res.status(200).json(users);
+  } catch (error) {
+    next(error);
+  }
+});
 // ✅ Fetch a user's favorites (Protected)
 // In usersRoute.js, replace the existing /:uid/favorites route with:
 router.get("/:uid/favorites", authMiddleware, async (req, res, next) => {

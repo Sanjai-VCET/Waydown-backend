@@ -3,24 +3,25 @@ const router = express.Router();
 const Post = require("../models/Post");
 const User = require("../models/User");
 const { authMiddleware } = require("../middleware/authMiddleware");
-const { body, param, query, validationResult } = require("express-validator");
+const { body, query, validationResult } = require("express-validator");
 const rateLimit = require("express-rate-limit");
-const upload = require("../middleware/upload");
 
-// Rate limiter for likes and comments
+// ✅ Rate limiter for likes and comments (to prevent spam)
 const likeCommentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 50, // 50 requests per window
-  message: "Too many likes/comments, slow down!",
+  message: "Too many requests, please slow down!",
 });
 
-// Pagination query parameter validation
+// ✅ Pagination query validation
 const paginationValidation = [
-  query("page").optional().isInt({ min: 1 }).toInt().withMessage("Page must be a positive integer"),
-  query("limit").optional().isInt({ min: 1, max: 100 }).toInt().withMessage("Limit must be between 1 and 100"),
+  query("page").optional().customSanitizer(value => Number(value) || 1)
+    .isInt({ min: 1 }).withMessage("Page must be a positive integer"),
+  query("limit").optional().customSanitizer(value => Number(value) || 10)
+    .isInt({ min: 1, max: 100 }).withMessage("Limit must be between 1 and 100"),
 ];
 
-// Middleware to validate request data
+// ✅ Middleware to validate request data
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -28,7 +29,9 @@ const validate = (req, res, next) => {
 };
 
 // **GET /api/community/posts** - Fetch paginated approved posts
-router.get("/", paginationValidation, validate, async (req, res, next) => {
+router.get("/posts", paginationValidation, validate, async (req, res, next) => {
+  console.log("🚀 Fetching community posts with query:", req.query);
+
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -41,232 +44,120 @@ router.get("/", paginationValidation, validate, async (req, res, next) => {
       .populate("user", "username profilePic")
       .lean();
 
-    const totalPages = Math.ceil(totalPosts / limit);
-    res.status(200).json({ posts, totalPages });
+    res.status(200).json({ posts, totalPages: Math.ceil(totalPosts / limit) });
   } catch (error) {
+    console.error("❌ Error fetching posts:", error);
     next(error);
   }
 });
 
-// **GET /api/community/:postId** - Fetch a single post by ID
-router.get(
-  "/:postId",
-  [param("postId").isMongoId().withMessage("Invalid post ID")],
-  validate,
-  async (req, res, next) => {
-    try {
-      const post = await Post.findById(req.params.postId)
-        .populate("user", "username profilePic")
-        .lean();
-      if (!post) return res.status(404).json({ error: "Post not found" });
-      res.status(200).json(post);
-    } catch (error) {
-      next(error);
-    }
+// **GET /api/community/posts/:postId/comments** - Fetch comments for a post
+router.get("/posts/:postId/comments", async (req, res, next) => {
+  console.log("🚀 Fetching comments for post:", req.params.postId);
+
+  try {
+    const { postId } = req.params;
+    const post = await Post.findById(postId)
+      .select("comments")
+      .populate("comments.user", "username profilePic")
+      .lean();
+
+    if (!post) return res.status(404).json({ error: `Post with ID ${postId} not found` });
+
+    res.status(200).json(post.comments || []);
+  } catch (error) {
+    console.error("❌ Error fetching comments:", error);
+    next(error);
   }
-);
+});
 
-// **POST /api/community/posts** - Create a new post
-router.post(
-  "/",
-  authMiddleware,
-  upload.array("images", 5),
-  [
-    body("title").notEmpty().withMessage("Title is required"),
-    body("content").notEmpty().withMessage("Content is required"),
-    body("location").notEmpty().withMessage("Location is required"),
-    body("tags").optional().isArray().withMessage("Tags must be an array"),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const user = await User.findOne({ uid: req.user.uid });
-      if (!user) return res.status(404).json({ error: "User not found" });
+// **POST /api/community/posts/:postId/like** - Like or unlike a post
+router.post("/posts/:postId/like", authMiddleware, likeCommentLimiter, async (req, res, next) => {
+  console.log("🚀 Like/unlike request for post:", req.params.postId);
 
-      const images = req.files
-        ? req.files.map((file) => ({
-            url: file.path,
-            uploadedAt: new Date(),
-          }))
-        : [];
+  try {
+    const { postId } = req.params;
+    const userId = req.user._id.toString(); // Ensure proper ID handling
 
-      let tags = req.body.tags;
-      if (typeof tags === "string") {
-        try {
-          tags = JSON.parse(tags);
-        } catch {
-          tags = [];
-        }
-      }
+    const post = await Post.findById(postId);
+    if (!post) return res.status(404).json({ error: `Post with ID ${postId} not found` });
 
-      const post = new Post({
-        title: req.body.title,
-        content: req.body.content,
-        location: req.body.location,
-        tags: tags || [],
-        images,
-        user: user._id,
-        likes: [],
-        comments: [],
-        status: "approved",
-      });
+    const hasLiked = post.likes.includes(userId);
 
-      await post.save();
-      const populatedPost = await Post.findById(post._id)
-        .populate("user", "username profilePic")
-        .lean();
+    // ✅ Use MongoDB operators for efficiency
+    const update = hasLiked
+      ? { $pull: { likes: userId } }  // Unlike
+      : { $addToSet: { likes: userId } };  // Like
 
-      res.status(201).json({ post: populatedPost });
-    } catch (error) {
-      next(error);
-    }
+    const updatedPost = await Post.findByIdAndUpdate(postId, update, { new: true }).lean();
+    res.status(200).json({ likes: updatedPost.likes });
+  } catch (error) {
+    console.error("❌ Error in like/unlike:", error);
+    next(error);
   }
-);
+});
 
-// **POST /api/community/:postId/like** - Like a post
+// **POST /api/community/posts/:postId/comments** - Add a comment
 router.post(
-  "/:postId/like",
+  "/posts/:postId/comments",
   authMiddleware,
   likeCommentLimiter,
-  [param("postId").isMongoId().withMessage("Invalid post ID")],
+  [body("text").trim().notEmpty().withMessage("Comment text is required")],
   validate,
   async (req, res, next) => {
+    console.log("🚀 Adding comment to post:", req.params.postId);
+
     try {
-      const post = await Post.findById(req.params.postId);
-      if (!post) return res.status(404).json({ error: "Post not found" });
+      const { postId } = req.params;
+      const { text } = req.body;
+      const userId = req.user._id.toString();
 
-      if (post.likes.includes(req.user.uid)) {
-        return res.status(400).json({ error: "Post already liked" });
-      }
-
-      post.likes.push(req.user.uid);
-      await post.save();
-
-      const updatedPost = await Post.findById(post._id)
-        .populate("user", "username profilePic")
-        .lean();
-
-      res.status(200).json({ post: updatedPost });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// **DELETE /api/community/:postId/like** - Unlike a post
-router.delete(
-  "/:postId/like",
-  authMiddleware,
-  likeCommentLimiter,
-  [param("postId").isMongoId().withMessage("Invalid post ID")],
-  validate,
-  async (req, res, next) => {
-    try {
-      const post = await Post.findById(req.params.postId);
-      if (!post) return res.status(404).json({ error: "Post not found" });
-
-      if (!post.likes.includes(req.user.uid)) {
-        return res.status(400).json({ error: "Post not liked" });
-      }
-
-      post.likes = post.likes.filter((uid) => uid !== req.user.uid);
-      await post.save();
-
-      const updatedPost = await Post.findById(post._id)
-        .populate("user", "username profilePic")
-        .lean();
-
-      res.status(200).json({ post: updatedPost });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// **POST /api/community/:postId/comments** - Add a comment to a post
-router.post(
-  "/:postId/comments",
-  authMiddleware,
-  likeCommentLimiter,
-  [
-    param("postId").isMongoId().withMessage("Invalid post ID"),
-    body("text").notEmpty().withMessage("Comment text is required"),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const post = await Post.findById(req.params.postId);
-      if (!post) return res.status(404).json({ error: "Post not found" });
-
-      const user = await User.findOne({ uid: req.user.uid });
-      if (!user) return res.status(404).json({ error: "User not found" });
+      const post = await Post.findById(postId);
+      if (!post) return res.status(404).json({ error: `Post with ID ${postId} not found` });
 
       const comment = {
-        user: user._id,
-        username: user.username,
-        text: req.body.text,
+        user: userId,
+        text,
         createdAt: new Date(),
       };
 
       post.comments.push(comment);
       await post.save();
 
-      const updatedPost = await Post.findById(post._id)
-        .populate("user", "username profilePic")
-        .lean();
-
-      res.status(200).json({ post: updatedPost });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// **GET /api/community/:postId/comments** - Fetch comments for a post
-router.get(
-  "/:postId/comments",
-  [param("postId").isMongoId().withMessage("Invalid post ID")],
-  validate,
-  async (req, res, next) => {
-    try {
-      const post = await Post.findById(req.params.postId)
+      // Populate user info for the response
+      const populatedPost = await Post.findById(postId)
         .populate("comments.user", "username profilePic")
         .lean();
-      if (!post) return res.status(404).json({ error: "Post not found" });
-      res.status(200).json(post.comments || []);
+
+      const newComment = populatedPost.comments.sort((a, b) => b.createdAt - a.createdAt)[0]; // Get the latest comment
+
+      res.status(201).json(newComment);
     } catch (error) {
+      console.error("❌ Error adding comment:", error);
       next(error);
     }
   }
 );
 
 // **GET /api/community/tags/trending** - Fetch trending tags
-router.get("/tags/trending", authMiddleware, paginationValidation, validate, async (req, res, next) => {
+router.get("/tags/trending", paginationValidation, validate, async (req, res, next) => {
+  console.log("🚀 Fetching trending tags with query:", req.query);
+
   try {
     const limit = parseInt(req.query.limit) || 10;
 
     const tags = await Post.aggregate([
       { $match: { status: "approved" } },
       { $unwind: "$tags" },
-      {
-        $group: {
-          _id: "$tags",
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $project: {
-          name: "$_id",
-          count: 1,
-          _id: 0,
-        },
-      },
+      { $group: { _id: "$tags", count: { $sum: 1 } } },
+      { $project: { name: "$_id", count: 1, _id: 0 } },
       { $sort: { count: -1 } },
       { $limit: limit },
     ]);
 
     res.status(200).json(tags);
   } catch (error) {
+    console.error("❌ Error fetching trending tags:", error);
     next(error);
   }
 });

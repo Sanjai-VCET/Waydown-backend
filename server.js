@@ -133,7 +133,7 @@ console.log("userRoutes file path:", require.resolve("./routes/usersRoute"));
 app.use("/api/auth",strictLimiter, authRoutes);
 app.use("/api/spots", spotRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/community",strictLimiter, communityRoutes);
+app.use("/api/community", communityRoutes);
 app.use("/api/errors", errorRoute);
 app.use("/api/welcome", welcomeRoute);
 app.use("/api/interests", interestsRoute);

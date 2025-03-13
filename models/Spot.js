@@ -134,7 +134,7 @@ const SpotSchema = new mongoose.Schema(
       default: ["Nature"],
       enum: [
         "Adventure", "Temples", "Waterfalls", "Beaches", "Mountains",
-    "Historical", "Nature", "Urban", "Foodie", "Wildlife"
+        "Historical", "Nature", "Urban", "Foodie", "Wildlife"
       ],
       index: true,
     },
@@ -221,7 +221,7 @@ SpotSchema.index({ uniqueFacts: "text", bestTimeToVisit: "text" });
 // Pre-save middleware to ensure tags are lowercase and compute averageRating
 SpotSchema.pre("save", function (next) {
   if (this.tags && this.tags.length > 0) {
-   
+    // Empty in original code
   }
   // Update averageRating based on comments
   if (this.isModified("comments")) {

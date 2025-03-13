@@ -98,7 +98,17 @@ const authMiddleware = async (req, res, next) => {
       ip: req.ip,
     });
 
+    console.log('Received token:', token);
+    console.log('Token length:', token.length);
+    console.log('Token parts:', token.split('.').length);
+
     const decodedToken = await admin.auth().verifyIdToken(token);
+    console.log('Decoded token:', {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      iat: decodedToken.iat,
+      exp: decodedToken.exp
+    });
 
     req.user = decodedToken;
 

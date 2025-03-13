@@ -24,6 +24,7 @@ const validate = (req, res, next) => {
   next();
 };
 
+
 // POST /api/auth/register
 router.post("/register", ...signupValidation, validate, authController.signup);
 
@@ -70,6 +71,28 @@ router.post("/ensure-user", authMiddleware, async (req, res, next) => {
   }
 });
 
+
+router.get("/status", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid }).select(
+      "uid email username isAdmin"
+    );
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.status(200).json({
+      authenticated: true,
+      user: {
+        uid: user.uid,
+        email: user.email,
+        username: user.username,
+        isAdmin: user.isAdmin,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to verify authentication status" });
+  }
+});
 // DELETE /api/auth/delete
 router.delete("/delete", authMiddleware, authController.deleteUser);
 router.delete("/delete/:uid", authMiddleware, adminMiddleware, authController.deleteUser);
@@ -97,5 +120,7 @@ router.get("/uid/:uid", validateUid, validate, async (req, res, next) => {
     next(error);
   }
 });
+
+
 
 module.exports = router;

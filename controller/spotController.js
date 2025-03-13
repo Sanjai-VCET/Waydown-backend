@@ -82,7 +82,7 @@ const fetchFeed = async (req, res, next) => {
   }
 };
 
-// Like a spot
+// Like a spot (Updated)
 const likeSpot = async (req, res, next) => {
   try {
     const spot = await Spot.findById(req.params.id);
@@ -95,19 +95,23 @@ const likeSpot = async (req, res, next) => {
       return res.status(400).json({ error: "Spot already liked" });
     }
 
-    spot.likedBy.push(firebaseUid);
-    await spot.save();
+    // Use findByIdAndUpdate to update only likedBy, avoiding full validation
+    const updatedSpot = await Spot.findByIdAndUpdate(
+      req.params.id,
+      { $push: { likedBy: firebaseUid } },
+      { new: true } // Return the updated document
+    );
 
     // Emit to users in the spot's room
-    req.io.to(spot._id.toString()).emit("spotUpdated", spot);
+    req.io.to(updatedSpot._id.toString()).emit("spotUpdated", updatedSpot);
 
-    res.status(200).json({ spot, message: "Spot liked" });
+    res.status(200).json({ spot: updatedSpot, message: "Spot liked" });
   } catch (error) {
     next(error);
   }
 };
 
-// Unlike a spot (new feature)
+// Unlike a spot
 const unlikeSpot = async (req, res, next) => {
   try {
     const spot = await Spot.findById(req.params.id);

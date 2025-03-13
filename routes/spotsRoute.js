@@ -53,6 +53,102 @@ router.get("/", paginationValidation, validate, async (req, res, next) => {
   }
 });
 
+// Submit a new spot
+router.post(
+  "/",
+  authMiddleware,
+  upload.array("photos", 100),
+  [
+    body("name").notEmpty().withMessage("Name is required"),
+    body("content").notEmpty().withMessage("Content is required"),
+    body("location.coordinates")
+      .isArray({ min: 2, max: 2 })
+      .withMessage("Coordinates must be [longitude, latitude]"),
+    body("location.coordinates.*")
+      .isFloat({ min: -180, max: 180 })
+      .withMessage("Coordinates must be valid longitude/latitude values"),
+    body("city").optional().isLength({ max: 100 }).withMessage("City name cannot exceed 100 characters"),
+    body("tags").optional().isArray().withMessage("Tags must be an array"),
+    body("tags.*")
+      .optional()
+      .isIn(["Adventure", "Temples", "Waterfalls", "Beaches", "Mountains", "Historical", "Nature", "Urban", "Foodie", "Wildlife"])
+      .withMessage("Invalid tag"),
+    body("difficulty")
+      .optional()
+      .isIn(["Easy", "Moderate", "Hard", "Unknown"])
+      .withMessage("Invalid difficulty level"),
+    body("bestTimeToVisit")
+      .optional()
+      .isLength({ max: 100 })
+      .withMessage("Best time to visit cannot exceed 100 characters"),
+    body("uniqueFacts")
+      .optional()
+      .isLength({ max: 500 })
+      .withMessage("Unique facts cannot exceed 500 characters"),
+    body("view360.imageUrl").optional().isURL().withMessage("360 view image URL must be a valid URL"),
+    body("view360.description")
+      .optional()
+      .isLength({ max: 200 })
+      .withMessage("360 view description cannot exceed 200 characters"),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const user = await User.findOne({ uid: req.user.uid });
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const photos = (req.files || []).map((file) => ({
+        url: file.path,
+        uploadedAt: new Date(),
+      }));
+      const coordinates = req.body["location.coordinates"];
+      const longitude = coordinates && Array.isArray(coordinates) ? parseFloat(coordinates[0]) : null;
+      const latitude = coordinates && Array.isArray(coordinates) ? parseFloat(coordinates[1]) : null;
+
+  console.log("Received Request Body:", req.body);
+
+      
+  if (longitude === null || latitude === null || isNaN(longitude) || isNaN(latitude)) {
+    console.error("Invalid coordinates received:", longitude, latitude);
+    return res.status(400).json({ error: "Invalid or missing coordinates" });
+  }
+      
+      // Construct location object manually
+      req.body.location = {
+        type: "Point",
+        coordinates: [longitude, latitude],
+      };
+      console.log("Parsed Location:", req.body.location); 
+
+      console.log("Received Request Body:", req.body);
+
+
+      const spot = new Spot({
+        name: req.body.name,
+        content: req.body.content,
+        location: req.body.location,
+        city: req.body.city || "",
+        tags: req.body.tags || [],
+        difficulty: req.body.difficulty || "Unknown",
+        photos,
+        bestTimeToVisit: req.body.bestTimeToVisit || "",
+        uniqueFacts: req.body.uniqueFacts || "",
+        view360: {
+          imageUrl: req.body.view360?.imageUrl || "",
+          description: req.body.view360?.description || "",
+        },
+        submittedBy: user._id,
+        status: "pending",
+      });
+
+      await spot.save();
+      res.status(201).json({ spot, message: "Spot submitted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Fetch personalized feed (with pagination)
 router.get("/feed", authMiddleware, paginationValidation, validate, async (req, res, next) => {
   try {
@@ -554,83 +650,7 @@ router.get("/:id/360-view", [param("id").isMongoId().withMessage("Invalid spot I
   }
 });
 
-// Submit a new spot
-router.post(
-  "/",
-  authMiddleware,
-  upload.array("photos", 100),
-  [
-    body("name").notEmpty().withMessage("Name is required"),
-    body("content").notEmpty().withMessage("Content is required"),
-    body("location.coordinates")
-      .isArray({ min: 2, max: 2 })
-      .withMessage("Coordinates must be [longitude, latitude]"),
-    body("location.coordinates.*")
-      .isFloat({ min: -180, max: 180 })
-      .withMessage("Coordinates must be valid longitude/latitude values"),
-    body("city").optional().isLength({ max: 100 }).withMessage("City name cannot exceed 100 characters"),
-    body("tags").optional().isArray().withMessage("Tags must be an array"),
-    body("tags.*")
-      .optional()
-      .isIn(["Adventure", "Temples", "Waterfalls", "Beaches", "Mountains", "Historical", "Nature", "Urban", "Foodie", "Wildlife"])
-      .withMessage("Invalid tag"),
-    body("difficulty")
-      .optional()
-      .isIn(["Easy", "Moderate", "Hard", "Unknown"])
-      .withMessage("Invalid difficulty level"),
-    body("bestTimeToVisit")
-      .optional()
-      .isLength({ max: 100 })
-      .withMessage("Best time to visit cannot exceed 100 characters"),
-    body("uniqueFacts")
-      .optional()
-      .isLength({ max: 500 })
-      .withMessage("Unique facts cannot exceed 500 characters"),
-    body("view360.imageUrl").optional().isURL().withMessage("360 view image URL must be a valid URL"),
-    body("view360.description")
-      .optional()
-      .isLength({ max: 200 })
-      .withMessage("360 view description cannot exceed 200 characters"),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const user = await User.findOne({ uid: req.user.uid });
-      if (!user) return res.status(404).json({ error: "User not found" });
 
-      const photos = req.files.map((file) => ({
-        url: file.path,
-        uploadedAt: new Date(),
-      }));
-
-      const spot = new Spot({
-        name: req.body.name,
-        content: req.body.content,
-        location: {
-          type: "Point",
-          coordinates: req.body.location.coordinates,
-        },
-        city: req.body.city || "",
-        tags: req.body.tags || [],
-        difficulty: req.body.difficulty || "Unknown",
-        photos,
-        bestTimeToVisit: req.body.bestTimeToVisit || "",
-        uniqueFacts: req.body.uniqueFacts || "",
-        view360: {
-          imageUrl: req.body.view360?.imageUrl || "",
-          description: req.body.view360?.description || "",
-        },
-        submittedBy: user._id,
-        status: "pending",
-      });
-
-      await spot.save();
-      res.status(201).json({ spot, message: "Spot submitted successfully" });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
 
 // Update a spot
 router.put(

@@ -5,7 +5,7 @@ const winston = require("winston");
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(
-      require("../waydown-dbd87-4930f0814f25.json")
+      require("../firebase-private-key.json")
     ),
   });
 }

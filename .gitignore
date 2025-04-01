@@ -25,3 +25,7 @@ jspm_packages
 
 # Firebase private key
 firebase-admin.json
+firebase-private-key.json
+waydown-dbd87-4930f0814f25.json
+waydown-dbd87-firebase-adminsdk-fbsvc-64c00d911a.json
+waydownsevicekey.json

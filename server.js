@@ -61,7 +61,7 @@ if (process.env.NODE_ENV !== "production") {
 // Middleware
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: ["http://localhost:5173", "https://way-down-frontend-ep0gzecxd-sanjais-projects-8aaafd51.vercel.app","https://szkx3rj2-5173.inc1.devtunnels.ms/",process.env.FRONTEND_URL],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
